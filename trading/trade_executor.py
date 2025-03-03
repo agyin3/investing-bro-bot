@@ -1,29 +1,38 @@
-import alpaca_trade_api as tradeapi
-from config.config import ALPACA_TEST_API_KEY, ALPACA_TEST_SECRET_KEY, ALPACA_TEST_BASE_URL
+import os
+from dotenv import load_dotenv
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, TimeInForce
 from notifications.telegram_bot import send_telegram_alert
 
-api = tradeapi.REST(ALPACA_TEST_API_KEY, ALPACA_TEST_SECRET_KEY, ALPACA_TEST_BASE_URL, api_version='v2')
+# Load environment variables
+load_dotenv()
+ALPACA_TEST_API_KEY = os.getenv("ALPACA_TEST_API_KEY")
+ALPACA_TEST_SECRET_KEY = os.getenv("ALPACA_TEST_SECRET_KEY")
 
-def place_trade(symbol, action, qty):
+# Initialize Alpaca Trading Client
+trading_client = TradingClient(ALPACA_TEST_API_KEY, ALPACA_TEST_SECRET_KEY)
+
+def place_trade(symbol: str, action: str, qty: int):
     """
-    Executes a trade (buy/sell) using Alpaca API and sends a Telegram notification.
+    Places a market order using Alpaca API.
     """
     try:
-        api.submit_order(
+        side = OrderSide.BUY if action.lower() == "buy" else OrderSide.SELL
+
+        order = MarketOrderRequest(
             symbol=symbol,
             qty=qty,
-            side=action,
-            type="market",
-            time_in_force="gtc"
+            side=side,
+            time_in_force=TimeInForce.GTC
         )
+
+        trading_client.submit_order(order)
         message = f"📈 Trade Executed: {action.upper()} {qty} shares of {symbol}"
         send_telegram_alert(message)
         print(message)
+
     except Exception as e:
         error_message = f"⚠️ Trade Error: {e}"
         send_telegram_alert(error_message)
         print(error_message)
-
-# Example: Buy 10 shares of AAPL
-if __name__ == "__main__":
-    place_trade("AAPL", "buy", 10)

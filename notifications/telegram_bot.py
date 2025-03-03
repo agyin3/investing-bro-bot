@@ -1,10 +1,14 @@
 import requests
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add the project root to Python's module path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from config.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# Load environment variables
+load_dotenv()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_telegram_alert(message):
     """

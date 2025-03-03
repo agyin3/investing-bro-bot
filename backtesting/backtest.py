@@ -1,13 +1,17 @@
+import os
+from dotenv import load_dotenv
 import backtrader as bt
-import alpaca_trade_api as tradeapi
 import pandas as pd
-from config.config import ALPACA_TEST_API_KEY, ALPACA_TEST_SECRET_KEY, ALPACA_TEST_BASE_URL
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 from notifications.telegram_bot import send_telegram_alert
-from datetime import datetime, timedelta
+from strategies.vwap_strategy import VWAPStrategy
 
-# Strategies 
-from strategies.vwap_strategy import VWAPStrategy 
-from strategies.sma_crossover import SMA_CrossStrategy
+# Load environment variables
+load_dotenv()
+ALPACA_TEST_API_KEY = os.getenv("ALPACA_TEST_API_KEY")
+ALPACA_TEST_SECRET_KEY = os.getenv("ALPACA_TEST_SECRET_KEY")
 
 # Custom Pandas Data Feed
 class CustomPandasData(bt.feeds.PandasData):
@@ -26,60 +30,39 @@ def backtest_strategy(symbol: str, strategy=VWAPStrategy):
     cerebro = bt.Cerebro()
     cerebro.addstrategy(strategy)
 
-    # Initialize Alpaca API
-    api = tradeapi.REST(ALPACA_TEST_API_KEY, ALPACA_TEST_SECRET_KEY, ALPACA_TEST_BASE_URL, api_version='v2')
+    # Initialize Alpaca Client
+    client = StockHistoricalDataClient(ALPACA_TEST_API_KEY, ALPACA_TEST_SECRET_KEY)
+    
+    # Fetch Historical Data
+    request_params = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, limit=1000)
+    bars = client.get_stock_bars(request_params).df
 
-    try:
-        # Define date range
-        end_date = datetime.today().strftime('%Y-%m-%d')
-        start_date = (datetime.today() - timedelta(days=200)).strftime('%Y-%m-%d')  # 1000 days back
+    if bars.empty or len(bars) < 20:
+        print(f"❌ Not enough data points for {symbol}. Backtest aborted.")
+        send_telegram_alert(f"❌ Not enough data points for {symbol}.")
+        return {"success": False, "final_value": None}
 
+    # Convert to Backtrader format
+    df = bars[["open", "high", "low", "close", "volume"]].copy()
+    df.index = pd.to_datetime(df.index, format='%Y-%m-%d').tz_localize(None)
+    df = df.sort_index()
+    df = df.loc[~df.index.duplicated(keep="first")]
 
-        # Fetch Historical Data
-        bars = api.get_bars(symbol, timeframe='1Day', start=start_date, end=end_date, feed='iex').df
+    # Debugging
+    print(f"📊 Data Preview for {symbol}:")
+    print(df.head())
 
-        print(f"✅ Retrieved {len(bars)} data points for {symbol} from {start_date} to {end_date}")
+    # Convert DataFrame to Backtrader Data Feed
+    data = CustomPandasData(dataname=df)
+    cerebro.adddata(data)
+    cerebro.broker.set_cash(100)
 
-        # Ensure DataFrame contains expected columns
-        required_columns = {"open", "high", "low", "close", "volume"}
-        if not required_columns.issubset(bars.columns):
-            print(f"❌ Invalid data format for {symbol}. Backtest aborted.")
-            send_telegram_alert(f"❌ Invalid data format for {symbol}.")
-            return
+    print(f"Starting Portfolio Value: {cerebro.broker.getvalue()}")
+    cerebro.run()
+    final_value = cerebro.broker.getvalue()
+    print(f"Ending Portfolio Value: {final_value}")
 
-        # Format Data for Backtrader
-        df = bars[["open", "high", "low", "close", "volume"]].copy()
-        df.index = pd.to_datetime(df.index, format='%Y-%m-%d').tz_localize(None)
-        df = df.sort_index()
-        df = df.loc[~df.index.duplicated(keep="first")]
+    cerebro.plot()
+    send_telegram_alert(f"📊 Backtest Completed for {symbol}")
 
-        if df.shape[0] < 20:
-            print(f"❌ Not enough data points for {symbol}. Backtest aborted.")
-            send_telegram_alert(f"❌ Not enough data points for {symbol}.")
-            return
-
-        # Debugging
-        print(f"📊 Data Preview for {symbol}:")
-        print(df.head())
-
-        # Convert DataFrame to Backtrader Data Feed
-        data = CustomPandasData(dataname=df)
-        cerebro.adddata(data)
-
-        cerebro.broker.set_cash(10000)
-
-        print(f"Starting Portfolio Value: {cerebro.broker.getvalue()}")
-        cerebro.run()
-        print(f"Ending Portfolio Value: {cerebro.broker.getvalue()}")
-
-        cerebro.plot()
-        send_telegram_alert(f"📊 Backtest Completed for {symbol}")
-
-    except Exception as e:
-        error_message = f"⚠️ Backtest Error: {e}"
-        print(error_message)
-        send_telegram_alert(error_message)
-
-# Run Backtest for AAPL
-if __name__ == "__main__":
-    backtest_strategy("AAPL", VWAPStrategy)
+    return {"success": final_value >= 120, "final_value": final_value}
