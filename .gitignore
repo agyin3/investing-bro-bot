@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs and databases
+logs/
+*.log
+*.sqlite3
+*.db
+
+# Secrets and API keys
+.env
+*.pem
+config.json
+secrets.json
+
+# Python package files
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Node.js dependencies (if using React)
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+package-lock.json
+
+# Compiled source
+*.class
+*.o
+*.so
+
+# IDE and editor files
+.vscode/
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Git merge conflict files
+*.orig

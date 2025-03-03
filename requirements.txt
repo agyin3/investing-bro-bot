@@ -1,0 +1,9 @@
+requests
+alpaca-trade-api
+backtrader
+pandas
+numpy
+matplotlib
+ta
+yfinance
+flask
