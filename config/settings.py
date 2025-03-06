@@ -18,4 +18,4 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 trading_client = TradingClient(API_KEY, API_SECRET, paper=True)  # Set `paper=False` for live trading
 
 # List of stocks to monitor
-STOCKS = ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN"]
+STOCKS = ["AAPL", "TSLA", "MSFT", "NVDA", "AMZN", "SQQQ", "SPY", "QQQ", "AMD", "GOOGL", "OKLO", "RGTI", "TEM", "SMR", "APLD", "NBIS", "HIMS", "RXRX"]

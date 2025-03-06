@@ -23,6 +23,16 @@ def get_market_close_time():
     clock = trading_client.get_clock()
     return clock.next_close.astimezone(pytz.utc)  # ✅ Ensure timezone consistency
 
+def get_total_portfolio_value():
+    """Fetches total portfolio value from Alpaca."""
+    account = trading_client.get_account()
+    return float(account.equity)
+
+def get_daily_profit_loss():
+    """Calculates the daily profit/loss."""
+    account = trading_client.get_account()
+    return float(account.equity) - float(account.last_equity)
+
 def time_until_market_opens():
     """Returns the time in minutes until the market opens."""
     if is_market_open():
@@ -41,12 +51,10 @@ def wait_until_market_opens():
         
         if minutes_remaining > 5:
             print(f"📉 Market is closed. Sleeping for {minutes_remaining - 5} minutes until 5 minutes before open...")
-            send_telegram_message(f"📉 *Market Closed.* The bot is paused until {minutes_remaining - 5} minutes before market open.")
             time.sleep((minutes_remaining - 5) * 60)  # Sleep until 5 minutes before open
         
         elif minutes_remaining > 0:
             print(f"⏳ Market opening soon. Waiting {minutes_remaining} more minutes...")
-            send_telegram_message(f"⏳ *Market Opening Soon!* The bot is paused until market open.")
             time.sleep(60)  # Check every minute when it's close
 
     print("✅ Market is opening in 5 minutes. Resuming bot execution...")
@@ -55,7 +63,7 @@ def wait_until_market_opens():
     send_telegram_message("🚀 *Market Opening Soon!* The bot is resuming trading in 5 minutes.")
 
 def wait_until_market_closes():
-    """Pauses execution until the market closes, then sends a Telegram notification."""
+    """Pauses execution until the market closes and sends a Telegram notification with a P/L summary."""
     while is_market_open():
         now = datetime.utcnow().replace(tzinfo=pytz.utc)  # ✅ Ensure timezone consistency
         market_close_time = get_market_close_time()
@@ -70,5 +78,13 @@ def wait_until_market_closes():
 
     print("📉 Market has closed. Pausing execution until next market open.")
 
-    # ✅ Send Telegram notification
-    send_telegram_message("📉 *Market Closed!* Trading has paused until the next market open.")
+    # ✅ Get profit/loss data
+    total_value = get_total_portfolio_value()
+    daily_pnl = get_daily_profit_loss()
+
+    # ✅ Send Telegram notification with summary
+    message = f"📉 *Market Closed!* Trading has paused until the next market open.\n\n" \
+              f"💰 *Portfolio Value:* ${total_value:.2f}\n" \
+              f"📊 *Daily Profit/Loss:* ${daily_pnl:.2f}"
+
+    send_telegram_message(message)
