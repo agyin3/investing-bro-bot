@@ -1,9 +1,18 @@
-requests
-alpaca-trade-api
-backtrader
+# Alpaca API for trading & market data
+alpaca-py
+
+# Data handling & numerical analysis
 pandas
 numpy
-matplotlib
-ta
-yfinance
-flask
+
+# Time and date utilities
+python-dateutil
+
+# Backtesting framework
+backtrader
+
+# Environment variable management
+python-dotenv
+
+# HTTP requests for Telegram notifications
+requests

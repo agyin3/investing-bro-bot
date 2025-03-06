@@ -1,6 +1,6 @@
 import backtrader as bt
 
-class SMA_CrossStrategy(bt.Strategy):
+class SMACrossoverStrategy(bt.Strategy):
     params = ("short_period", 50), ("long_period", 200)
 
     def __init__(self):

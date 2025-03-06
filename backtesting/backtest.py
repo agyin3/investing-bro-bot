@@ -1,68 +1,143 @@
-import os
-from dotenv import load_dotenv
 import backtrader as bt
 import pandas as pd
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
-from notifications.telegram_bot import send_telegram_alert
-from strategies.vwap_strategy import VWAPStrategy
+from datetime import datetime, timedelta
+from data.market_data import get_historical_data
 
-# Load environment variables
-load_dotenv()
-ALPACA_TEST_API_KEY = os.getenv("ALPACA_TEST_API_KEY")
-ALPACA_TEST_SECRET_KEY = os.getenv("ALPACA_TEST_SECRET_KEY")
+class DayTradeStrategy(bt.Strategy):
+    params = (("sma_period", 10),)
 
-# Custom Pandas Data Feed
-class CustomPandasData(bt.feeds.PandasData):
+    def __init__(self):
+        self.sma = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.sma_period)
+        self.macd = bt.indicators.MACD(self.data.close)
+        self.trades = 0
+        self.wins = 0
+
+    def next(self):
+        if not self.position:
+            if self.data.close[0] > self.sma[0] and self.macd.macd[0] > self.macd.signal[0]:
+                self.buy()
+                self.trades += 1
+        else:
+            if self.data.close[0] < self.sma[0] and self.macd.macd[0] < self.macd.signal[0]:
+                if self.data.close[0] > self.position.price:
+                    self.wins += 1
+                self.sell()
+
+class BacktestStrategy(bt.Strategy):
     params = (
-        ("datetime", None),
-        ("open", -1),
-        ("high", -1),
-        ("low", -1),
-        ("close", -1),
-        ("volume", -1),
+        ("short_window", 10),
+        ("long_window", 50),
     )
-    datafields = ["datetime", "open", "high", "low", "close", "volume"]
 
-# Backtesting Function
-def backtest_strategy(symbol: str, strategy=VWAPStrategy):
-    cerebro = bt.Cerebro()
-    cerebro.addstrategy(strategy)
+    def __init__(self):
+        self.sma_short = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.short_window)
+        self.sma_long = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.long_window)
+        self.macd = bt.indicators.MACD(self.data.close)
+        self.trades = 0
+        self.wins = 0
 
-    # Initialize Alpaca Client
-    client = StockHistoricalDataClient(ALPACA_TEST_API_KEY, ALPACA_TEST_SECRET_KEY)
+    def next(self):
+        if not self.position:
+            if self.sma_short[0] > self.sma_long[0] and self.macd.macd[0] > self.macd.signal[0]:
+                self.buy()
+                self.trades += 1
+        else:
+            if self.sma_short[0] < self.sma_long[0] and self.macd.macd[0] < self.macd.signal[0]:
+                if self.data.close[0] > self.position.price:
+                    self.wins += 1
+                self.sell()
+
+def get_dynamic_dates():
+    """Returns the start and end dates for backtesting (last 1 year, ending yesterday)."""
+    end_date = datetime.today() - timedelta(days=1)
+    start_date = end_date - timedelta(days=365)
+    return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+
+def run_swing_trade_backtest(symbol, timeframe="day"):
+    """Runs a swing trade backtest and returns performance metrics."""
     
-    # Fetch Historical Data
-    request_params = StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Day, limit=1000)
-    bars = client.get_stock_bars(request_params).df
+    start_date, end_date = get_dynamic_dates()
+    df = get_historical_data(symbol, start_date, end_date, timeframe)
+    
+    if df.empty:
+        print(f"⚠️ No historical data available for {symbol}. Skipping swing trade backtest.")
+        return None
+    
+    data = bt.feeds.PandasData(dataname=df)
 
-    if bars.empty or len(bars) < 20:
-        print(f"❌ Not enough data points for {symbol}. Backtest aborted.")
-        send_telegram_alert(f"❌ Not enough data points for {symbol}.")
-        return {"success": False, "final_value": None}
-
-    # Convert to Backtrader format
-    df = bars[["open", "high", "low", "close", "volume"]].copy()
-    df.index = pd.to_datetime(df.index, format='%Y-%m-%d').tz_localize(None)
-    df = df.sort_index()
-    df = df.loc[~df.index.duplicated(keep="first")]
-
-    # Debugging
-    print(f"📊 Data Preview for {symbol}:")
-    print(df.head())
-
-    # Convert DataFrame to Backtrader Data Feed
-    data = CustomPandasData(dataname=df)
+    cerebro = bt.Cerebro()
+    cerebro.addstrategy(BacktestStrategy)
     cerebro.adddata(data)
-    cerebro.broker.set_cash(100)
+    cerebro.broker.set_cash(10000)
+    cerebro.broker.setcommission(commission=0.001)
 
-    print(f"Starting Portfolio Value: {cerebro.broker.getvalue()}")
-    cerebro.run()
+    starting_value = cerebro.broker.getvalue()
+    
+    try:
+        results = cerebro.run()
+    except Exception as e:
+        print(f"❌ Swing trade backtest failed for {symbol}: {e}")
+        return None
+
     final_value = cerebro.broker.getvalue()
-    print(f"Ending Portfolio Value: {final_value}")
 
-    cerebro.plot()
-    send_telegram_alert(f"📊 Backtest Completed for {symbol}")
+    strategy = results[0]
+    total_trades = strategy.trades
+    win_rate = (strategy.wins / total_trades) * 100 if total_trades > 0 else 0
+    profit_loss_pct = ((final_value - starting_value) / starting_value) * 100
 
-    return {"success": final_value >= 120, "final_value": final_value}
+    print(f"Swing Trade Backtest for {symbol}:")
+    print(f" - Final Portfolio Value: ${final_value:.2f}")
+    print(f" - Profit/Loss: {profit_loss_pct:.2f}%")
+    print(f" - Win Rate: {win_rate:.2f}%")
+
+    return {
+        "symbol": symbol,
+        "final_value": final_value,
+        "profit_loss_pct": profit_loss_pct,
+        "win_rate": win_rate
+    }
+
+def run_day_trade_backtest(symbol):
+    """Runs a day trade backtest using 5-minute candles."""
+    
+    start_date, end_date = get_dynamic_dates()
+    df = get_historical_data(symbol, start_date, end_date, timeframe="5Min")
+
+    if df.empty:
+        print(f"⚠️ No historical data available for {symbol}. Skipping day trade backtest.")
+        return None
+    
+    data = bt.feeds.PandasData(dataname=df)
+    cerebro = bt.Cerebro()
+    cerebro.addstrategy(DayTradeStrategy)
+    cerebro.adddata(data)
+    cerebro.broker.set_cash(5000)
+    cerebro.broker.setcommission(commission=0.002)
+
+    starting_value = cerebro.broker.getvalue()
+
+    try:
+        results = cerebro.run()
+    except Exception as e:
+        print(f"❌ Day trade backtest failed for {symbol}: {e}")
+        return None
+
+    final_value = cerebro.broker.getvalue()
+
+    strategy = results[0]
+    total_trades = strategy.trades
+    win_rate = (strategy.wins / total_trades) * 100 if total_trades > 0 else 0
+    profit_loss_pct = ((final_value - starting_value) / starting_value) * 100
+
+    print(f"Day Trade Backtest for {symbol}:")
+    print(f" - Final Portfolio Value: ${final_value:.2f}")
+    print(f" - Profit/Loss: {profit_loss_pct:.2f}%")
+    print(f" - Win Rate: {win_rate:.2f}%")
+
+    return {
+        "symbol": symbol,
+        "final_value": final_value,
+        "profit_loss_pct": profit_loss_pct,
+        "win_rate": win_rate
+    }

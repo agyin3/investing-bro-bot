@@ -14,9 +14,7 @@ class VWAPStrategy(bt.Strategy):
         # Buy Signal: When price crosses above VWAP
         if price > self.vwap[0] and not self.position:
             self.buy()
-            print(f"📈 BUY: {self.data.datetime.date(0)}, Price: {price}, VWAP: {self.vwap[0]}")
 
         # Sell Signal: When price crosses below VWAP
         elif price < self.vwap[0] and self.position:
             self.sell()
-            print(f"📉 SELL: {self.data.datetime.date(0)}, Price: {price}, VWAP: {self.vwap[0]}")
